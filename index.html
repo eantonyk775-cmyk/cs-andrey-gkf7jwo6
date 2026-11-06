@@ -183,7 +183,29 @@ html.touch{scroll-behavior:auto}
 .touch .btn-yes:hover,.touch .time:hover{transform:none}
 .touch .meme{transform:none}
 .touch .tiny-no{font-size:10px;padding:4px 6px}
-.touch .snd{top:auto;bottom:calc(64px + env(safe-area-inset-bottom));left:auto;right:14px;transform:none}
+
+/* ---------- слайды: один неподвижный экран, листаем стрелками ---------- */
+.nav{display:none}
+.slides .nav{display:flex;position:fixed;left:0;right:0;bottom:calc(14px + env(safe-area-inset-bottom));z-index:70;
+  justify-content:center;align-items:center;gap:14px;pointer-events:none}
+.nav button{pointer-events:auto;width:62px;height:62px;border-radius:50%;font-size:24px;padding:0;display:grid;place-items:center;
+  border:2px solid var(--orange);background:rgba(8,11,16,.88);color:var(--orange)}
+.nav #next{width:74px;height:74px;font-size:30px;border:0;color:#1a1000;background:linear-gradient(135deg,#ffc15a,var(--orange2));
+  box-shadow:0 0 0 0 rgba(242,162,58,.6)}
+.nav button:disabled{opacity:.2}
+.nav #next.pulse{animation:navpulse 1.6s infinite}
+@keyframes navpulse{70%{box-shadow:0 0 0 20px rgba(242,162,58,0)}100%{box-shadow:0 0 0 0 rgba(242,162,58,0)}}
+.nav #pos{min-width:56px;text-align:center;color:var(--mut);font-family:var(--head);font-size:14px;letter-spacing:.08em;pointer-events:none}
+html.slides,.slides body{height:100%;overflow:hidden}
+.slides main{position:fixed;inset:0}
+.slides .panel{position:absolute;inset:0;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain}
+.slides .panel:not(.cur){display:none!important}
+.slides .panel.cur{display:flex!important}
+.slides .inner{margin:auto}
+.slides .hud,.slides .mouse{display:none}
+.slides .snd{top:auto;left:14px;right:auto;bottom:calc(26px + env(safe-area-inset-bottom));transform:none;padding:10px 12px;font-size:18px;border-radius:50%}
+.arrive{animation:arrive .5s cubic-bezier(.2,.9,.3,1)}
+@keyframes arrive{from{opacity:0;transform:scale(.86)}}
 </style>
 </head>
 <body>
@@ -203,6 +225,11 @@ html.touch{scroll-behavior:auto}
 <div class="hud">
   <div class="box"><span class="hp">♥ <span id="hp">100</span></span><span>⛨ 100</span><small>$16000</small></div>
   <div class="box ammo"><b id="am">30</b> <small>/ 90</small></div>
+</div>
+<div class="nav" id="nav">
+  <button type="button" id="prev" aria-label="Назад" disabled>◀</button>
+  <span id="pos">1 / 7</span>
+  <button type="button" id="next" class="pulse" aria-label="Дальше">▶</button>
 </div>
 <button class="tiny-no" id="tinyNo" type="button">нет</button>
 
@@ -314,6 +341,10 @@ const t0 = Date.now();
 // ?touch в адресе включает этот режим принудительно (для проверки на компьютере).
 const touch = matchMedia('(pointer:coarse)').matches || matchMedia('(hover:none)').matches || /[?&]touch/.test(location.search);
 if(touch) document.documentElement.classList.add('touch');
+// Телефон = «слайды»: один неподвижный экран за раз, листать стрелками внизу (или свайпом). ?slides включает режим на компьютере.
+const slides = touch || /[?&]slides/.test(location.search);
+if(slides) document.documentElement.classList.add('slides');
+let cur = 0;          // номер текущего экрана в режиме слайдов
 
 /* ===== звук ===== */
 let AC, soundOn = true;
@@ -327,7 +358,9 @@ function shot(){
     f.type='lowpass'; f.frequency.value=2600; g.gain.value=.16; s.buffer=buf; s.connect(f); f.connect(g); g.connect(AC.destination); s.start();
   }catch(e){}
 }
-$('#snd').onclick = e => { e.stopPropagation(); soundOn=!soundOn; e.target.textContent = soundOn ? '🔊 звук: вкл' : '🔇 звук: выкл'; };
+const sndLabel = () => slides ? (soundOn ? '🔊' : '🔇') : (soundOn ? '🔊 звук: вкл' : '🔇 звук: выкл');   // на телефоне — только значок
+$('#snd').textContent = sndLabel();
+$('#snd').onclick = e => { e.stopPropagation(); soundOn=!soundOn; e.currentTarget.textContent = sndLabel(); };
 
 /* ===== курсор, пробоины, патроны ===== */
 const ring = $('#ring'); let ammo = 30, mx = innerWidth/2, my = innerHeight/2;
@@ -348,9 +381,10 @@ function resize(){ DPR=touch ? 1 : Math.min(devicePixelRatio||1,2); W=innerWidth
 // на телефоне адресная строка прячется при прокрутке и «растягивает» окно — игнорируем такие мелкие изменения высоты
 addEventListener('resize', () => { if(innerWidth !== W || Math.abs(innerHeight - H) > 140) resize(); }); resize();
 for(let i=0;i<(touch ? 160 : 420);i++) stars.push({x:rand(-1,1),y:rand(-1,1),z:rand(.03,1),c:Math.random()<.35?'95,180,255':'242,162,58'});
-let lastY = scrollY, vel = 0;
+let lastY = scrollY, vel = 0, boost = 0;
 function warp(){
-  vel += ((scrollY-lastY)-vel)*.14; lastY = scrollY;
+  if(slides){ vel += (boost-vel)*.14; boost *= .9; }            // в режиме слайдов «полёт» запускается при смене экрана
+  else { vel += ((scrollY-lastY)-vel)*.14; lastY = scrollY; }
   const dir = vel < -1 ? -1 : 1, speed = .0016 + Math.min(Math.abs(vel),90)*.0011;
   cx.clearRect(0,0,W,H);
   const k = Math.max(W,H)*.34;
@@ -372,6 +406,7 @@ const panels = $$('.panel');
 const fxPanels = $$('.panel.fx');      // только неинтерактивные блоки: опросник и финал НЕ двигаем, иначе по кнопкам не попасть
 function layout(){
   const vh = innerHeight;
+  if(slides){ $('#floor').style.backgroundPositionY = (cur*260) + 'px'; return; }   // слайды: ничего не двигаем по прокрутке
   for(const p of fxPanels){
     const r = p.getBoundingClientRect(), d = (r.top + r.height/2 - vh/2)/vh;
     const a = Math.min(1, Math.abs(d)), inner = p.firstElementChild;
@@ -395,9 +430,7 @@ $$('.card').forEach(c => {
 /* ===== kill feed + полоски ===== */
 function feed(html){ const k=document.createElement('div'); k.className='kill'; k.innerHTML=html; $('#feed').appendChild(k); setTimeout(()=>k.remove(),4800); }
 const seen = new Set();
-const io = new IntersectionObserver(es => es.forEach(e => {
-  if(!e.isIntersecting) return;
-  const el = e.target;
+function onShow(el){                                  // экран появился: килл-фид и анимация полосок
   if(el.classList.contains('arg') && !seen.has(el)){
     seen.add(el);
     feed(`<b>${CONFIG.author}</b> <i>🔫</i> Отмазка №${el.dataset.n} ☠`);
@@ -405,8 +438,49 @@ const io = new IntersectionObserver(es => es.forEach(e => {
   }
   if(el.id==='bridge' && !seen.has(el)){ seen.add(el); feed(`<b>${CONFIG.guest}</b> больше нечем крыть`); }
   if(el.id==='quiz' && !seen.has(el)){ seen.add(el); feed(`<b>${CONFIG.guest}</b> подключается к игре…`); }
-}), {threshold:.55});
-$$('.arg,#bridge,#quiz').forEach(el => io.observe(el));
+}
+let quizVisible = false;
+function syncTiny(){ $('#tinyNo').classList.toggle('on', quizVisible && $('#q1').classList.contains('on')); }   // крошечное «нет» — только на вопросе 1
+if(!slides){                                          // компьютер: следим за прокруткой
+  const io = new IntersectionObserver(es => es.forEach(e => { if(e.isIntersecting) onShow(e.target); }), {threshold:.55});
+  $$('.arg,#bridge,#quiz').forEach(el => io.observe(el));
+  new IntersectionObserver(es => es.forEach(e => { quizVisible = e.isIntersecting; syncTiny(); }), {threshold:.35}).observe($('#quiz'));
+}
+
+/* ===== слайды (телефон): стрелки и свайп ===== */
+const order = $$('.panel');                           // hero, 4 аргумента, bridge, quiz, finale
+const QUIZ_IDX = order.findIndex(p => p.id==='quiz'), FIN_IDX = order.findIndex(p => p.id==='finale');
+let finaleOpen = false;
+function go(i, silent){
+  if(!slides) return;
+  i = Math.max(0, Math.min(i, finaleOpen ? FIN_IDX : QUIZ_IDX));      // дальше опроса — только после ответа
+  const dir = i >= cur ? 1 : -1, changed = i !== cur;
+  cur = i;
+  order.forEach((p, k) => p.classList.toggle('cur', k===cur));
+  const p = order[cur]; p.scrollTop = 0; scrollTo(0,0);
+  if(changed && !silent){ boost = 70*dir; p.firstElementChild.classList.remove('arrive'); void p.offsetWidth; p.firstElementChild.classList.add('arrive'); }
+  onShow(p);
+  quizVisible = (cur === QUIZ_IDX); syncTiny();
+  $('#prev').disabled = cur === 0 || cur === FIN_IDX;
+  $('#next').disabled = cur >= QUIZ_IDX;               // на опроснике дальше идём кнопками «Да» и «Отправить»
+  $('#next').classList.toggle('pulse', cur < QUIZ_IDX);
+  $('#pos').textContent = cur === FIN_IDX ? '★' : (cur+1) + ' / ' + (QUIZ_IDX+1);
+  if(cur !== QUIZ_IDX) undodge();
+}
+if(slides){
+  $('#next').onclick = e => { e.stopPropagation(); go(cur+1); };
+  $('#prev').onclick = e => { e.stopPropagation(); go(cur-1); };
+  addEventListener('keydown', e => { if(e.key==='ArrowRight'||e.key==='PageDown') go(cur+1); if(e.key==='ArrowLeft'||e.key==='PageUp') go(cur-1); });
+  let sx = 0, sy = 0;                                  // свайп влево/вправо (на опроснике выключен — там кнопка «Нет» убегает от пальца)
+  addEventListener('touchstart', e => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, {passive:true});
+  addEventListener('touchend', e => {
+    if(cur >= QUIZ_IDX) return;
+    const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy;
+    if(Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy)*1.5) go(cur + (dx < 0 ? 1 : -1));
+  }, {passive:true});
+  document.querySelectorAll('.hint').forEach(h => { h.textContent = 'жми стрелку ▶ внизу'; });
+  const lead = $('#hero .lead'); if(lead) lead.textContent = 'У меня есть четыре аргумента. Они железные. Жми стрелку ▶ внизу и сам всё поймёшь.';
+}
 setTimeout(()=>feed(`<b>${CONFIG.guest}</b> <i>joined the game</i>`), 900);
 
 /* ===== опросник ===== */
@@ -414,10 +488,9 @@ const ans = { discord:null, play:null, time:null, note:'', noAttempts:0, tinyNo:
 function toast(t){ const d=document.createElement('div'); d.className='toast'; d.textContent=t; document.body.appendChild(d); setTimeout(()=>d.remove(),3600); }
 function goStep(id){
   $$('.step').forEach(s => s.classList.toggle('on', s.id===id));
-  $('#tinyNo').classList.toggle('on', id==='q1');
+  syncTiny();
   if(id!=='q2') undodge();
 }
-$('#tinyNo').classList.add('on');   // крошечное «нет» в углу экрана только для вопроса 1
 
 $('#yes1').onclick = () => { ans.discord = 'Да'; goStep('q2'); };
 $('#tinyNo').onclick = e => { e.stopPropagation(); ans.discord = 'Нет (нашёл крошечную кнопку!)'; ans.tinyNo = true;
@@ -441,7 +514,7 @@ function dodge(){
     document.body.appendChild(no); no.classList.add('run'); fixed = true; void no.offsetWidth;
   }
   // куда убегать: внутри экрана, в стороне от пальца/курсора и НЕ поверх кнопки «Да» и прочего интерфейса
-  const yes = $('#yes2').getBoundingClientRect(), minY = 70, maxY = innerHeight-bh-80;
+  const yes = $('#yes2').getBoundingClientRect(), minY = 70, maxY = innerHeight-bh-104;     // снизу оставляем место под стрелки/HUD
   const free = (x,y) => !hits(x,y,bw,bh,yes,18) && !hits(x,y,bw,bh,$('#snd').getBoundingClientRect(),8);
   let x, y, tries = 0, best = null;
   do{
@@ -503,7 +576,8 @@ function showFinale(text, sent){
       <button type="button" id="copy">Скопировать</button>`;
     $('#copy').onclick = async () => { try{ await navigator.clipboard.writeText(text); toast('Скопировано! Вставь в чат 👍'); }catch(e){ toast('Выдели текст выше и скопируй вручную'); } };
   }
-  scrollTo({top: 0}); setTimeout(()=>f.scrollIntoView({behavior:'smooth'}), 60);
+  if(slides){ finaleOpen = true; go(FIN_IDX); }
+  else { scrollTo({top: 0}); setTimeout(()=>f.scrollIntoView({behavior:'smooth'}), 60); }
   feed(`<b>${CONFIG.guest}</b> <i>🏆</i> принял приглашение`); confetti();
 }
 
@@ -523,10 +597,16 @@ function confetti(){
 /* ===== режим разработчика: ?dev#q2 / #q3 / #end — чтобы быстро смотреть экраны ===== */
 if(/[?&]dev/.test(location.search)){
   const h = location.hash.slice(1), only = id => panels.forEach(p => p.style.display = (p.id===id ? '' : 'none'));
-  if(h==='q1'||h==='q2'||h==='q3'){ only('quiz'); goStep(h); }
+  if(slides){                                           // в слайдах просто переходим на нужный экран
+    const idx = {hero:0, a1:1, bridge:5, q1:QUIZ_IDX, q2:QUIZ_IDX, q3:QUIZ_IDX}[h];
+    if(h==='end'){ ans.discord='Да'; ans.play='Да'; ans.time='В 22:00'; showFinale(message(), false); }
+    else if(idx !== undefined){ go(idx, true); if(h[0]==='q') goStep(h); }
+  }
+  else if(h==='q1'||h==='q2'||h==='q3'){ only('quiz'); goStep(h); }
   else if(h==='end'){ ans.discord='Да'; ans.play='Да'; ans.time='В 22:00'; showFinale(message(), false); only('finale'); scrollTo(0,0); }
   else if(h) only(h);
 }
+go(cur, true);        // показать стартовый экран в режиме слайдов (на компьютере ничего не делает)
 </script>
 </body>
 </html>
